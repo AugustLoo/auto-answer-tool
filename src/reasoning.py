@@ -20,7 +20,7 @@ def call_deepseek_api(questions_text: str) -> Optional[List[Dict]]:
     prompt = f"""You are an expert quiz solver. Your task is to answer each question with 100% accuracy. Follow these rules strictly:
 
 ---RULES---
-1. Output a JSON array. Each object MUST have: "题号", "答案", "解释".
+1. Output a JSON array. Each object MUST have: "题号", "答案", "解释". "题号" must be ONLY the number (e.g. "1", "2"), NOT "Q1".
 2. READ EVERY OPTION CAREFULLY. Do NOT guess. Eliminate wrong options first, then select the best one.
 3. For single choice: output exactly ONE letter (e.g. "B").
 4. For multiple choice: output combined letters with NO spaces (e.g. "ACD").
@@ -105,11 +105,17 @@ def analyze_questions(questions: List[Dict]) -> Optional[List[Dict]]:
     if not answers:
         return None
 
-    # 将答案映射到题目
-    answer_map = {str(a.get("题号", i+1)): a for i, a in enumerate(answers)}
+    # 将答案映射到题目（兼容 "1" 和 "Q1" 两种题号格式）
+    import re
+    def _normalize_num(s):
+        return re.sub(r'^[Qq]', '', str(s))
+    answer_map = {}
+    for i, a in enumerate(answers):
+        key = _normalize_num(a.get("题号", i+1))
+        answer_map[key] = a
     result = []
     for i, q in enumerate(questions):
-        q_num = str(q["number"])
+        q_num = _normalize_num(q["number"])
         ans = answer_map.get(q_num) or answer_map.get(str(i+1))
         if ans:
             q_copy = q.copy()
