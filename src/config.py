@@ -9,7 +9,7 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "api_url": "https://api.deepseek.com/v1/chat/completions",
     "model": "deepseek-chat",
-    "hotkey_start": "ctrl+shift+q",
+    "hotkey_start": "ctrl+capslock",
     "hotkey_stop": "ctrl+shift+w",
     "fill_delay": 0.3,
 }

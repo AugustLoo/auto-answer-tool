@@ -17,23 +17,23 @@ def call_deepseek_api(questions_text: str) -> Optional[List[Dict]]:
         return None
 
     # 构造Prompt
-    prompt = f"""你是一个专业的答题助手。请分析以下题目，给出每道题的答案和简要解释。
+    prompt = f"""You are an expert quiz solver. Your task is to answer each question with 100% accuracy. Follow these rules strictly:
 
-要求：
-1. 严格按照JSON数组格式输出，每个对象包含"题号"、"答案"、"解释"三个字段
-2. 题号使用题目中的数字（如1,2,3）
-3. 答案格式：
-   - 单选题：选项字母（如"A"）
-   - 多选题：选项字母组合（如"ACD"）
-   - 判断题："正确"或"错误"
-   - 填空题：填写内容
-   - 简答题：简要回答要点
-4. 解释用一句话说明理由
+---RULES---
+1. Output a JSON array. Each object MUST have: "题号", "答案", "解释".
+2. READ EVERY OPTION CAREFULLY. Do NOT guess. Eliminate wrong options first, then select the best one.
+3. For single choice: output exactly ONE letter (e.g. "B").
+4. For multiple choice: output combined letters with NO spaces (e.g. "ACD").
+5. For True/False or 判断题: "True"/"False" for English, "正确"/"错误" for Chinese.
+6. For fill-in-the-blank: output ONLY the missing word/phrase, nothing extra.
+7. For essay/short answer: 2-4 precise sentences.
+8. For math: think step-by-step, then output the final answer using ^ for exponents, sqrt() for roots.
+9. "解释" must be ONE sentence explaining WHY the answer is correct. Do NOT restate the question.
 
-题目：
+---QUESTIONS---
 {questions_text}
 
-请直接输出JSON数组，不要有其他文字："""
+Output ONLY the JSON array. No markdown, no extra text:"""
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -43,10 +43,10 @@ def call_deepseek_api(questions_text: str) -> Optional[List[Dict]]:
     data = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "你是一个专业的答题助手，严格按照要求输出JSON。"},
+            {"role": "system", "content": "You are an expert quiz solver. Read every option carefully. Eliminate wrong answers before selecting. Never guess. Output ONLY valid JSON. Every answer must be factually correct."},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.1,
+        "temperature": 0,
         "max_tokens": 2000
     }
 
@@ -96,8 +96,8 @@ def analyze_questions(questions: List[Dict]) -> Optional[List[Dict]]:
         return []
 
     questions_text = "\n".join([
-        f"题号{q['number']}（题型：{q['type']}）：{q['content']}"
-        + (f"\n选项：{chr(10).join([opt['label'] + '. ' + opt['text'] for opt in q['options']])}" if q['options'] else "")
+        f"Q{q['number']} [{q['type']}]: {q['content']}"
+        + (f"\nOptions: {chr(10).join([opt['label'] + '. ' + opt['text'] for opt in q['options']])}" if q['options'] else "")
         for q in questions
     ])
 

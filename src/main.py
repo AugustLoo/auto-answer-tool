@@ -1,6 +1,6 @@
 """
 桌面自动化答题系统 - 主入口
-快捷键 Ctrl+Shift+Q 触发答题
+快捷键 Ctrl+CapsLock 触发：截图 → AI分析 → 屏幕显示答案
 快捷键 Ctrl+Shift+W 停止
 
 用法：
@@ -24,7 +24,8 @@ from capture import (
 )
 from parser import extract_questions, format_questions_for_ai, count_questions_by_type
 from reasoning import analyze_questions, test_api_connection
-from autofill import AutoFiller
+import pyautogui
+import pyperclip
 
 # 全局停止标志
 STOP_FLAG = False
@@ -38,72 +39,138 @@ def on_stop():
     sys.exit(0)
 
 
+def show_answers_overlay(questions_with_answers):
+    """在屏幕上显示答案窗口（悬浮置顶，不抢焦点）"""
+    import tkinter as tk
+    import tkinter.font as tkfont
+
+    root = tk.Tk()
+    root.title("Answer")
+    root.attributes("-topmost", True)
+    root.attributes("-alpha", 0.92)
+    root.overrideredirect(True)
+    # 放在屏幕右下角
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    win_w, win_h = 480, min(600, 80 + len(questions_with_answers) * 52)
+    root.geometry(f"{win_w}x{win_h}+{screen_w - win_w - 20}+{screen_h - win_h - 80}")
+
+    # 黑色半透明背景，白色文字
+    frame = tk.Frame(root, bg="#1e1e2e", bd=2, relief="ridge")
+    frame.pack(fill="both", expand=True)
+
+    # 标题栏
+    title_font = tkfont.Font(family="Microsoft YaHei", size=11, weight="bold")
+    title = tk.Label(frame, text="Answer", bg="#2d2d44", fg="#cdd6f4", font=title_font, pady=4)
+    title.pack(fill="x")
+
+    # 可滚动的答案区域
+    canvas = tk.Canvas(frame, bg="#1e1e2e", highlightthickness=0)
+    scrollbar = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+    scrollable = tk.Frame(canvas, bg="#1e1e2e")
+    scrollable.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=scrollable, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    answer_font = tkfont.Font(family="Consolas", size=10)
+    explain_font = tkfont.Font(family="Microsoft YaHei", size=9)
+
+    for q in questions_with_answers:
+        num = q.get("number", "?")
+        ans = q.get("answer", "?")
+        exp = q.get("explanation", "")
+        q_type = q.get("type", "")
+
+        row = tk.Frame(scrollable, bg="#1e1e2e", pady=2)
+        row.pack(fill="x", padx=8)
+
+        # 题号 + 答案（高亮）
+        type_tag = ""
+        if q_type == "essay":
+            type_tag = "[Essay]"
+        elif q_type == "math" or q_type == "essay":
+            type_tag = "[Math]"
+
+        q_text = f"Q{num} {type_tag}"
+        tk.Label(row, text=q_text, bg="#1e1e2e", fg="#89b4fa", font=answer_font, width=14, anchor="w").pack(side="left")
+
+        # 答案
+        ans_color = "#a6e3a1"  # 绿色
+        ans_display = ans if len(ans) <= 60 else ans[:57] + "..."
+        tk.Label(row, text=ans_display, bg="#1e1e2e", fg=ans_color, font=answer_font, wraplength=280).pack(side="left", padx=(4, 0))
+
+        # 解释（灰色小字）
+        if exp:
+            exp_row = tk.Frame(scrollable, bg="#1e1e2e")
+            exp_row.pack(fill="x", padx=22)
+            tk.Label(exp_row, text=exp, bg="#1e1e2e", fg="#6c7086", font=explain_font,
+                     wraplength=440, justify="left", anchor="w").pack(anchor="w")
+
+    # 关闭按钮
+    close_btn = tk.Button(frame, text="Close (Esc)", bg="#45475a", fg="#cdd6f4", relief="flat",
+                          command=root.destroy, font=tkfont.Font(size=9))
+    close_btn.pack(pady=4)
+    root.bind("<Escape>", lambda e: root.destroy())
+
+    # 3秒后自动关闭
+    root.after(15000, root.destroy)
+    root.mainloop()
+
+
 def run_auto_answer():
-    """执行一次自动答题流程"""
+    """截图 → AI分析 → 屏幕显示答案"""
     global STOP_FLAG
     STOP_FLAG = False
 
     print("\n" + "=" * 50)
-    print("[START] 自动答题已触发")
+    print("[START] Screenshot & Analyze")
     print("=" * 50)
 
-    # 第1步：捕获内容
-    print("[STEP 1/4] 捕获当前窗口内容...")
+    # Step 1: Capture
+    print("[1/3] Capturing screen content...")
     text = capture_text_from_window()
     if not text or len(text.strip()) < 10:
-        print("[WARN] 剪贴板捕获失败，尝试OCR...")
+        print("[WARN] Clipboard empty, trying OCR...")
         img = capture_active_window()
         text = try_ocr(img)
         if not text:
-            print("[ERROR] OCR也未能识别到内容，请确保活动窗口有文字内容")
+            print("[ERROR] No text detected. Make sure the quiz window is active.")
             return
-    print(f"[OK] 捕获到 {len(text)} 个字符")
+    print(f"[OK] {len(text)} chars captured")
 
     if STOP_FLAG:
         return
 
-    # 第2步：解析题目
-    print("[STEP 2/4] 解析题目...")
+    # Step 2: Parse & AI
+    print("[2/3] AI analyzing...")
     questions = extract_questions(text)
     if not questions:
-        print("[WARN] 未识别到题目，将全文作为一道简答题处理")
-        # 如果识别不到题号格式，把整段当一道题
         questions = [{
-            "number": "1",
-            "type": "essay",
-            "content": text[:500],
-            "options": [],
-            "full_text": text[:500]
+            "number": "1", "type": "essay",
+            "content": text[:500], "options": [], "full_text": text[:500]
         }]
     counts = count_questions_by_type(questions)
-    print(f"[OK] 识别到 {len(questions)} 道题: {counts}")
+    print(f"[OK] {len(questions)} questions: {counts}")
 
     if STOP_FLAG:
         return
 
-    # 第3步：AI推理
-    print("[STEP 3/4] AI推理中...")
     result = analyze_questions(questions)
     if result is None:
-        print("[ERROR] AI推理失败，请检查API密钥和网络")
+        print("[ERROR] AI analysis failed")
         return
 
-    # 显示推理结果
+    # Print to console
     for q in result:
-        ans = q.get("answer", "?")
-        exp = q.get("explanation", "")
-        print(f"  第{q['number']}题: {ans} | {exp}")
+        print(f"  Q{q['number']}: {q.get('answer', '?')}  |  {q.get('explanation', '')}")
 
-    if STOP_FLAG:
-        return
+    # Step 3: Show overlay
+    print("[3/3] Displaying answers on screen...")
+    show_answers_overlay(result)
 
-    # 第4步：自动填写
-    print("[STEP 4/4] 自动填写中，请勿移动鼠标...")
-    cfg = load_config()
-    filler = AutoFiller(fill_delay=cfg.get("fill_delay", 0.3))
-    filler.fill_answers(result)
-
-    print("[DONE] 答题完成！")
+    print("[DONE] Answers displayed. Press Esc to close.")
 
 
 def start_hotkey_listener():
@@ -218,7 +285,7 @@ def run_self_test():
 
 
 if __name__ == "__main__":
-    print("桌面自动化答题系统 v1.0")
+    print("Desktop Quiz Assistant v2.0 (Screenshot → AI → Display)")
     print("=" * 50)
 
     if len(sys.argv) > 1:

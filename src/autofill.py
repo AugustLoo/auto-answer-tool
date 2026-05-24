@@ -22,7 +22,12 @@ class AutoFiller:
             return
 
         print(f"[INFO] 开始填写 {len(questions)} 道题...")
-        time.sleep(1)  # 给用户1秒准备时间
+        time.sleep(0.5)
+
+        # 点击窗口中心确保焦点在答题窗口
+        screen_width, screen_height = pyautogui.size()
+        pyautogui.click(screen_width // 2, screen_height // 2)
+        time.sleep(0.3)
 
         for i, q in enumerate(questions):
             print(f"[INFO] 填写第{i+1}题: {q.get('answer', '无答案')}")
@@ -60,15 +65,20 @@ class AutoFiller:
         time.sleep(self.fill_delay)
 
     def _fill_single_choice(self, answer: str):
-        """单选题：按选项字母键"""
+        """单选题：先按数字键(1-4)，再按字母键(A-D)，确保覆盖不同网站的答题方式"""
         if not answer:
             return
-        # 取第一个字符（如"B"）
         key = answer.strip()[0].upper()
         if key in "ABCDEFGH":
+            # 先尝试数字键（如 A→1, B→2）
+            num_key = str(ord(key) - ord("A") + 1)
+            pyautogui.press(num_key)
+            time.sleep(0.1)
+            # 再尝试字母键
             pyautogui.press(key.lower())
         else:
-            print(f"[WARN] 无效选项字母: {key}")
+            # 答案本身就是数字或文字
+            pyautogui.press(str(answer))
 
     def _fill_multi_choice(self, answer: str):
         """多选题：依次按多个字母键"""
@@ -82,15 +92,22 @@ class AutoFiller:
                 print(f"[WARN] 无效选项字母: {ch}")
 
     def _fill_judgment(self, answer: str):
-        """判断题：根据答案选择正确/错误"""
+        """判断题：根据答案选择正确/错误 (True/False, 正确/错误, Yes/No)"""
         ans_lower = answer.strip().lower()
-        if "正确" in ans_lower or "对" in ans_lower or "true" in ans_lower or "√" in ans_lower:
-            # 通常判断题A=正确，B=错误
-            pyautogui.press("a")
-        elif "错误" in ans_lower or "错" in ans_lower or "false" in ans_lower or "×" in ans_lower:
-            pyautogui.press("b")
+        # True / 正确 / Yes
+        if any(kw in ans_lower for kw in ["正确", "对", "true", "yes", "√", "t"]):
+            pyautogui.press("a")  # Usually A=True
+            pyautogui.press("1")  # Backup: press 1
+        # False / 错误 / No
+        elif any(kw in ans_lower for kw in ["错误", "错", "false", "no", "×", "f"]):
+            pyautogui.press("b")  # Usually B=False
+            pyautogui.press("2")  # Backup: press 2
         else:
-            print(f"[WARN] 无法识别的判断题答案: {answer}")
+            # Unknown judgment answer, paste it as text
+            print(f"[WARN] 无法识别的判断题答案: {answer}，尝试粘贴")
+            pyperclip.copy(answer)
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "v")
 
     def _fill_blank(self, answer: str):
         """填空题：粘贴答案文本"""

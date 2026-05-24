@@ -71,28 +71,44 @@ def _parse_question_body(body):
 
 def _detect_question_type(body):
     """根据关键词和选项格式判断题型"""
-    # 判断题
-    if re.search(r'(正确|错误|对|错|√|×|T|F|true|false|YES|NO|是|否)', body, re.IGNORECASE):
-        # 有选项形式的可能是选择题而非判断题，进一步判断
-        pass
-
     # 多选题：有 "多选" 关键词，或选项标记允许选多个
-    if re.search(r'(多选|多选题|不定项|多项选择)', body):
+    if re.search(r'(多选|多选题|不定项|多项选择|select all|choose all|multiple correct)', body, re.IGNORECASE):
         return "multi"
 
     # 填空题：有下划线或括号空位
-    if re.search(r'[_]{2,}|（\s+）|（\s*）|\b___\b', body):
+    if re.search(r'[_]{2,}|（\s+）|（\s*）|\b___\b|\.{3,}', body):
         return "fill"
 
-    # 简答题：有"简述""请回答""论述""分析""解释"等关键词
-    if re.search(r'(简述|简答|请回答|论述|分析|解释|说明|谈谈|讨论|总结|概述)', body):
+    # 简答题/Essay：有关键词
+    essay_keywords = (
+        r'(简述|简答|请回答|论述|分析|解释|说明|谈谈|讨论|总结|概述'
+        r'|explain|describe|discuss|analyze|compare|contrast'
+        r'|evaluate|justify|summarize|outline|define|elaborate'
+        r'|what is your opinion|in your own words|write an essay'
+        r'|give reasons|state the|what are the)'
+    )
+    if re.search(essay_keywords, body, re.IGNORECASE):
         return "essay"
 
-    # 判断题：有"正确/错误"或"对/错"选项
+    # 数学题判断：有数学表达式特征且无选项
+    if re.search(r'[=＝]\s*[?？]|solve\s+for|find\s+the\s+value|calculate|compute|evaluate\s+the\s+expression|what\s+is\s+the\s+value|simplify|differentiate|integrate|derivative|solve the equation|prove that', body, re.IGNORECASE):
+        return "essay"
+
+    # 判断题：有"正确/错误"或"对/错"或 True/False 选项
     if re.search(r'[Aa]\s*[\.\、]?\s*正确|[Bb]\s*[\.\、]?\s*错误', body):
         return "judge"
     if re.search(r'[Aa]\s*[\.\、]?\s*对|[Bb]\s*[\.\、]?\s*错', body):
         return "judge"
+    if re.search(r'[Aa]\s*[\.\、]?\s*true|[Bb]\s*[\.\、]?\s*false', body, re.IGNORECASE):
+        return "judge"
+    if re.search(r'(True\s*/\s*False|Yes\s*/\s*No|T\s*/\s*F)', body, re.IGNORECASE):
+        # Check if it's a True/False statement question
+        if not re.search(r'[Cc]\s*[\.\、]', body):  # No option C/D, so likely T/F
+            return "judge"
+
+    # 英语简答题特征：问句开头且无选项
+    if re.search(r'^(What|How|Why|When|Where|Who|Explain|Describe|Discuss)', body.strip(), re.IGNORECASE):
+        return "essay"
 
     # 默认选择题
     return "single"
